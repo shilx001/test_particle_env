@@ -1,3 +1,13 @@
+My tested multi-agent particle environment, aims at to simulate the experiment environment based on this one.
+
+Arthur: Longxiang Shi
+Date: 2018-2-13
+
+
+
+
+Below is the original document of the environment.
+
 # Multi-Agent Particle Environment
 
 A simple multi-agent particle world with a continuous observation and discrete action space, along with some basic simulated physics.
