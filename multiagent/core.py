@@ -105,7 +105,7 @@ class World(object):
 
     # return all agents controllable by external policies
     @property
-    def policy_agents(self):
+    def policy_agents(self):#
         return [agent for agent in self.agents if agent.action_callback is None]
 
     # return all agents controlled by world scripts

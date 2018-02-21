@@ -1,3 +1,4 @@
+# -- coding: utf-8 --
 import numpy as np
 from pyglet.window import key
 
@@ -7,6 +8,17 @@ class Policy(object):
         pass
     def action(self, obs):
         raise NotImplementedError()
+
+# DDPG policy
+class DDPGPolicy(Policy):
+    def __init__(self, env):
+        self.env=env
+
+    def action(self, obs):#根据DDPG选择action输出。
+        pass
+
+
+
 
 # interactive policy based on keyboard input
 # hard-coded to deal only with movement, not communication

@@ -87,4 +87,3 @@ class Scenario(BaseScenario):
             if other is agent: continue
             comm.append(other.state.c)
         return np.concatenate([agent.state.p_vel] + entity_pos + [goal_color[1]] + comm)
-            

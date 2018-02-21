@@ -1,6 +1,10 @@
+# -- coding: utf-8 --
+
+
 """
 2D rendering framework
 """
+
 from __future__ import division
 import os
 import six
@@ -44,7 +48,7 @@ def get_display(spec):
 
 class Viewer(object):
     def __init__(self, width, height, display=None):
-        display = get_display(display)
+        display = get_display(display)#创建canvas
 
         self.width = width
         self.height = height
@@ -173,13 +177,13 @@ class Attr(object):
     def disable(self):
         pass
 
-class Transform(Attr):
+class Transform(Attr):#openGL的转换函数
     def __init__(self, translation=(0.0, 0.0), rotation=0.0, scale=(1,1)):
         self.set_translation(*translation)
         self.set_rotation(rotation)
         self.set_scale(*scale)
     def enable(self):
-        glPushMatrix()
+        glPushMatrix()#存到堆栈顶
         glTranslatef(self.translation[0], self.translation[1], 0) # translate to GL loc ppint
         glRotatef(RAD2DEG * self.rotation, 0, 0, 1.0)
         glScalef(self.scale[0], self.scale[1], 1)
