@@ -6,12 +6,12 @@ sys.path.insert(1, os.path.join(sys.path[0], '..'))
 
 import argparse
 import numpy as np
+import pickle
+import matplotlib.pyplot as plt
 
 from multiagent.environment import MultiAgentEnv
 from multiagent.policy import InteractivePolicy
 import multiagent.scenarios as scenarios
-
-
 
 
 if __name__ == '__main__':
@@ -34,13 +34,16 @@ if __name__ == '__main__':
     #obs_n = env.reset()
     ddpg_model=DDPG(10,520,0.5)
     var=0.5
+    average_reward=[1,2,3]
+
+
     for i in range(1000):
 
         s = env.reset()#env.reset()没有工作。
         env.render()
         ep_reward = 0
 
-        for j in range(2000):
+        for j in range(300):
 
             # Add exploration noise
             a = ddpg_model.choose_action(np.reshape(s,[520]))
@@ -55,8 +58,15 @@ if __name__ == '__main__':
 
             s = s_
             ep_reward += np.mean(r)
-            if j == 200 - 1:
-                print('Episode:', i, ' Reward: %i' % int(ep_reward), 'Explore: %.2f' % var,)
-                # if ep_reward > -300:RENDER = True
+            if j == 300 - 1:
+                print('Episode:', i, ' Reward: %i' % int(ep_reward/200), 'Explore: %.2f' % var,)
+                average_reward.append(ep_reward)
                 break
+
+    pickle.dump(average_reward, open("average_reward", "w"))
+    plt.plot(average_reward,label='average_reward')
+    plt.title("Avarage reward for each episode")
+    plt.xlabel('episode')
+    plt.ylabel('reward')
+    plt.show()
 
