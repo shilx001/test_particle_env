@@ -18,19 +18,28 @@ HIDDEN_SIZE = 20
 AGENT_SIZE = 10
 
 
-###############################  DDPG  ####################################
+###############################  Muti-agent DDPG  ####################################
 
 
 class DDPG(object):
-    def __init__(self, a_dim, s_dim, a_bound, ):  # a_dim=10,s_dim=520
-        self.memory = np.zeros((MEMORY_CAPACITY, 10, 107), dtype=np.float32)  # reward变为agent_size维
+    def __init__(self, a_dim, s_dim, a_bound, agent_number):  # a_dim=10,s_dim=520
+        '''
+        :param a_dim: action dimension for each agent
+        :param s_dim: state dimension for each agent (regard as a 1-dimension vector)
+        :param a_bound: action bound
+        :param agent_number: agent number
+        '''
+        self.memory = np.zeros((MEMORY_CAPACITY, agent_number, s_dim * 2 + 1 + a_dim),
+                               dtype=np.float32)  # reward变为agent_size维
         self.pointer = 0
         self.sess = tf.Session()
 
-        self.a_dim, self.s_dim, self.a_bound = a_dim, s_dim, a_bound,
-        self.S = tf.placeholder(tf.float32, [None, s_dim], 's')
-        self.S_ = tf.placeholder(tf.float32, [None, s_dim], 's_')
-        self.R = tf.placeholder(tf.float32, [None, 10], 'r')  # reward变为Agent_size维
+        self.a_dim, self.s_dim, self.a_bound, self.agent_number = a_dim, s_dim, a_bound, agent_number
+        self.S = tf.placeholder(tf.float32, [None, s_dim * agent_number],
+                                's')  # stretch the state dimension into 1-dimension
+        self.S_ = tf.placeholder(tf.float32, [None, s_dim * agent_number],
+                                 's_')  # stretch the state dimension into 1-dimension
+        self.R = tf.placeholder(tf.float32, [None, agent_number], 'r')  # reward变为Agent_size维
 
         self.a = self._build_a(self.S, )
         q = self._build_c(self.S, self.a, )
@@ -56,22 +65,26 @@ class DDPG(object):
         self.sess.run(tf.global_variables_initializer())
 
     def choose_action(self, s):
-        return self.sess.run(self.a, {self.S: s[np.newaxis, :]})
+        #s needs to stretch into 1-dimention vector
+        s=np.reshape(s,[self.agent_number*self.s_dim])
+        action=self.sess.run(self.a, {self.S: s[np.newaxis, :]})
+        return np.reshape(action,[self.agent_number,self.a_dim])  # np.newaxis意思应该和reshape一样。
 
     def learn(self):
         indices = np.random.choice(MEMORY_CAPACITY, size=BATCH_SIZE)
         bt = self.memory[indices, :]  # transitions
-        bs = np.reshape(bt[:, :, :52], [-1, 520])  # states
-        ba = np.reshape(bt[:, :, 52:54], [-1, 20])  # 这个地方需要改一下
-        br = bt[:, :, 54]  # rewards
-        bs_ = np.reshape(bt[:, :, -52:], [-1, 520])  # next_state
+        bs = np.reshape(bt[:, :, :self.s_dim], [-1, self.s_dim*self.agent_number])  # states
+        ba = np.reshape(bt[:, :, self.s_dim:self.s_dim+self.a_dim], [-1, self.agent_number*self.a_dim])
+        br = bt[:, :, self.s_dim+self.a_dim]  # rewards
+        bs_ = np.reshape(bt[:, :, -self.s_dim:], [-1, self.agent_number*self.s_dim])  # next_state
 
         self.sess.run(self.atrain, {self.S: bs})
         self.sess.run(self.ctrain, {self.S: bs, self.a: ba, self.R: br, self.S_: bs_})
 
     def store_transition(self, s, a, r, s_):
         transition = np.hstack(
-            (np.reshape(s, [10, 52]), np.reshape(a, [10, 2]), np.reshape(r, [10, 1]), np.reshape(s_, [10, 52])))
+            (np.reshape(s, [self.agent_number, self.s_dim]), np.reshape(a, [self.agent_number, self.a_dim]),
+             np.reshape(r, [self.agent_number, 1]), np.reshape(s_, [self.agent_number, self.s_dim])))
         index = self.pointer % MEMORY_CAPACITY  # replace the old memory with new memory
         self.memory[index, :] = transition
         self.pointer += 1
@@ -80,15 +93,15 @@ class DDPG(object):
         trainable = True if reuse is None else False
         with tf.variable_scope('Actor', reuse=reuse, custom_getter=custom_getter):
             net = tf.layers.dense(s, 300, activation=tf.nn.relu, name='l1', trainable=trainable)
-            a = tf.layers.dense(net, 2 * self.a_dim, activation=tf.nn.tanh, name='a', trainable=trainable)
+            a = tf.layers.dense(net, self.a_dim*self.agent_number, activation=tf.nn.tanh, name='a', trainable=trainable)
             return tf.multiply(a, self.a_bound, name='scaled_a')
 
     def _build_c(self, s, a, reuse=None, custom_getter=None):
         trainable = True if reuse is None else False
         with tf.variable_scope('Critic', reuse=reuse, custom_getter=custom_getter):
             n_l1 = 300
-            w1_s = tf.get_variable('w1_s', [self.s_dim, n_l1], trainable=trainable)
-            w1_a = tf.get_variable('w1_a', [2 * self.a_dim, n_l1], trainable=trainable)
+            w1_s = tf.get_variable('w1_s', [self.s_dim*self.agent_number, n_l1], trainable=trainable)
+            w1_a = tf.get_variable('w1_a', [self.agent_number * self.a_dim, n_l1], trainable=trainable)
             b1 = tf.get_variable('b1', [1, n_l1], trainable=trainable)
             net = tf.nn.relu(tf.matmul(s, w1_s) + tf.matmul(a, w1_a) + b1)
-            return tf.layers.dense(net, 10, trainable=trainable)  # Q(s,a)
+            return tf.layers.dense(net, self.agent_number, trainable=trainable)  # Q(s,a)

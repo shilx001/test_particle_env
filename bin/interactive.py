@@ -32,9 +32,9 @@ if __name__ == '__main__':
     #policies = [InteractivePolicy(env,i) for i in range(env.n)]#可能会有多个环境，所以可能有多个policy
     # execution loop
     #obs_n = env.reset()
-    ddpg_model=DDPG(10,520,0.5)
+    ddpg_model=DDPG(2,52,0.5,10)
     var=0.5
-    average_reward=[1,2,3]
+    average_reward=[]
 
 
     for i in range(1000):
@@ -43,14 +43,14 @@ if __name__ == '__main__':
         env.render()
         ep_reward = 0
 
-        for j in range(300):
+        for j in range(200):
 
             # Add exploration noise
-            a = ddpg_model.choose_action(np.reshape(s,[520]))
+            a = ddpg_model.choose_action(s)
             a = np.clip(np.random.normal(a, var), -1, 1)  # add randomness to action selection for exploration
-            s_, r, done, info = env.step(np.reshape(a,[10,2]))
+            s_, r, done, info = env.step(a)
             env.render()
-            ddpg_model.store_transition(s, np.reshape(a,[10,2]), r, s_)
+            ddpg_model.store_transition(s, a, r, s_)
 
             if ddpg_model.pointer > MEMORY_CAPACITY:
                 var *= .9999  # decay the action randomness
@@ -58,13 +58,13 @@ if __name__ == '__main__':
 
             s = s_
             ep_reward += np.mean(r)
-            if j == 300 - 1:
+            if j == 200 - 1:
                 print('Episode:', i, ' Reward: %i' % int(ep_reward/200), 'Explore: %.2f' % var,)
                 average_reward.append(ep_reward)
                 break
 
     pickle.dump(average_reward, open("average_reward", "w"))
-    plt.plot(average_reward,label='average_reward')
+    plt.plot(np.array(average_reward)/200,label='average_reward')
     plt.title("Avarage reward for each episode")
     plt.xlabel('episode')
     plt.ylabel('reward')
