@@ -35,11 +35,11 @@ class DDPG(object):
         self.sess = tf.Session()
 
         self.a_dim, self.s_dim, self.a_bound, self.agent_number = a_dim, s_dim, a_bound, agent_number
-        self.S = tf.placeholder(tf.float32, [None, s_dim * agent_number],
+        self.S = tf.placeholder(tf.float32, [BATCH_SIZE, s_dim * agent_number],
                                 's')  # stretch the state dimension into 1-dimension
-        self.S_ = tf.placeholder(tf.float32, [None, s_dim * agent_number],
+        self.S_ = tf.placeholder(tf.float32, [BATCH_SIZE, s_dim * agent_number],
                                  's_')  # stretch the state dimension into 1-dimension
-        self.R = tf.placeholder(tf.float32, [None, agent_number], 'r')  # reward变为Agent_size维
+        self.R = tf.placeholder(tf.float32, [BATCH_SIZE, agent_number], 'r')  # reward变为Agent_size维
 
         self.a = self._build_a(self.S, )
         q = self._build_c(self.S, self.a, )
@@ -65,10 +65,10 @@ class DDPG(object):
         self.sess.run(tf.global_variables_initializer())
 
     def choose_action(self, s):
-        #s needs to stretch into 1-dimention vector
-        s=np.reshape(s,[self.agent_number*self.s_dim])
-        action=self.sess.run(self.a, {self.S: s[np.newaxis, :]})
-        return np.reshape(action,[self.agent_number,self.a_dim])  # np.newaxis意思应该和reshape一样。
+        s = np.reshape(s, [self.agent_number * self.s_dim]) * np.ones([BATCH_SIZE, 1])
+        action = self.sess.run(self.a, {self.S: s})
+        action = action[0, :]
+        return np.reshape(action, [self.agent_number, self.a_dim])
 
     def learn(self):
         indices = np.random.choice(MEMORY_CAPACITY, size=BATCH_SIZE)
@@ -92,16 +92,26 @@ class DDPG(object):
     def _build_a(self, s, reuse=None, custom_getter=None):
         trainable = True if reuse is None else False
         with tf.variable_scope('Actor', reuse=reuse, custom_getter=custom_getter):
-            net = tf.layers.dense(s, 300, activation=tf.nn.relu, name='l1', trainable=trainable)
-            a = tf.layers.dense(net, self.a_dim*self.agent_number, activation=tf.nn.tanh, name='a', trainable=trainable)
+            input_state = tf.reshape(s, [BATCH_SIZE, self.agent_number, self.s_dim])
+            cell = tf.contrib.rnn.BasicRNNCell(num_units=HIDDEN_SIZE)
+            outputs, states = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell, cell_bw=cell, inputs=input_state,
+                                                              dtype=tf.float32)
+            outputs_all = tf.concat(outputs, 1)
+            outputs_all = tf.reshape(outputs_all, [BATCH_SIZE, 2 * HIDDEN_SIZE * self.agent_number])
+            a = tf.layers.dense(outputs_all, self.a_dim * self.agent_number, activation=tf.nn.tanh, name='a',
+                                trainable=trainable)
             return tf.multiply(a, self.a_bound, name='scaled_a')
 
     def _build_c(self, s, a, reuse=None, custom_getter=None):
         trainable = True if reuse is None else False
         with tf.variable_scope('Critic', reuse=reuse, custom_getter=custom_getter):
-            n_l1 = 300
-            w1_s = tf.get_variable('w1_s', [self.s_dim*self.agent_number, n_l1], trainable=trainable)
-            w1_a = tf.get_variable('w1_a', [self.agent_number * self.a_dim, n_l1], trainable=trainable)
-            b1 = tf.get_variable('b1', [1, n_l1], trainable=trainable)
-            net = tf.nn.relu(tf.matmul(s, w1_s) + tf.matmul(a, w1_a) + b1)
-            return tf.layers.dense(net, self.agent_number, trainable=trainable)  # Q(s,a)
+            input_action = tf.reshape(a, [BATCH_SIZE, self.agent_number, self.a_dim])
+            input_state = tf.reshape(s, [BATCH_SIZE, self.agent_number, self.s_dim])
+            input_all = tf.concat([input_action, input_state], axis=2)
+            cell = tf.contrib.rnn.BasicRNNCell(num_units=HIDDEN_SIZE)
+            outputs, states = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell, cell_bw=cell, inputs=input_all,
+                                                              dtype=tf.float32)
+            outputs_all = tf.concat(outputs, 1)
+            outputs_all = tf.reshape(outputs_all, [BATCH_SIZE, -1])
+            Q = tf.layers.dense(outputs_all, self.agent_number, name='Q', trainable=trainable)
+            return Q

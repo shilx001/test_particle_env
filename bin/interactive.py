@@ -37,7 +37,7 @@ if __name__ == '__main__':
     average_reward=[]
 
 
-    for i in range(1000):
+    for i in range(500):
 
         s = env.reset()#env.reset()没有工作。
         env.render()
@@ -62,8 +62,10 @@ if __name__ == '__main__':
                 print('Episode:', i, ' Reward: %i' % int(ep_reward/200), 'Explore: %.2f' % var,)
                 average_reward.append(ep_reward)
                 break
+        if i%50 == 0 and i is not 0:
+            pickle.dump(average_reward, open("average_reward"+str(i), "w"))
 
-    pickle.dump(average_reward, open("average_reward", "w"))
+    #pickle.dump(average_reward, open("average_reward", "w"))
     plt.plot(np.array(average_reward)/200,label='average_reward')
     plt.title("Avarage reward for each episode")
     plt.xlabel('episode')
