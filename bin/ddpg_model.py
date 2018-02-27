@@ -89,11 +89,12 @@ class DDPG(object):
         self.memory[index, :] = transition
         self.pointer += 1
 
-    def _build_a(self, s, reuse=None, custom_getter=None):
+    def _build_a(self, s, reuse=None, custom_getter=None):#BiCNet/MemNet
         trainable = True if reuse is None else False
         with tf.variable_scope('Actor', reuse=reuse, custom_getter=custom_getter):
             input_state = tf.reshape(s, [BATCH_SIZE, self.agent_number, self.s_dim])
-            cell = tf.contrib.rnn.BasicRNNCell(num_units=HIDDEN_SIZE)
+            #cell = tf.contrib.rnn.BasicRNNCell(num_units=HIDDEN_SIZE)
+            cell = tf.contrib.rnn.LSTMCell(num_units=HIDDEN_SIZE)
             outputs, states = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell, cell_bw=cell, inputs=input_state,
                                                               dtype=tf.float32)
             outputs_all = tf.concat(outputs, 1)
@@ -102,13 +103,14 @@ class DDPG(object):
                                 trainable=trainable)
             return tf.multiply(a, self.a_bound, name='scaled_a')
 
-    def _build_c(self, s, a, reuse=None, custom_getter=None):
+    def _build_c(self, s, a, reuse=None, custom_getter=None):#BiCNet/MemNet
         trainable = True if reuse is None else False
         with tf.variable_scope('Critic', reuse=reuse, custom_getter=custom_getter):
             input_action = tf.reshape(a, [BATCH_SIZE, self.agent_number, self.a_dim])
             input_state = tf.reshape(s, [BATCH_SIZE, self.agent_number, self.s_dim])
             input_all = tf.concat([input_action, input_state], axis=2)
-            cell = tf.contrib.rnn.BasicRNNCell(num_units=HIDDEN_SIZE)
+            #cell = tf.contrib.rnn.BasicRNNCell(num_units=HIDDEN_SIZE)
+            cell=tf.contrib.rnn.LSTMCell(num_units=HIDDEN_SIZE)
             outputs, states = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell, cell_bw=cell, inputs=input_all,
                                                               dtype=tf.float32)
             outputs_all = tf.concat(outputs, 1)
