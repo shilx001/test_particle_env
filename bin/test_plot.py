@@ -4,11 +4,14 @@ import pickle
 
 average_reward=pickle.load(open("average_reward_bicnet"))
 average_reward_fc=pickle.load(open('average_reward_fc'))
-average_reward_lstm=pickle.load(open('average_reward450'))
+average_reward_lstm=pickle.load(open('average_reward_lstm'))
+average_reward_commnet=pickle.load(open('average_reward450'))
+
 
 plt.plot(np.array(average_reward[25:])/200,label='BiCNet')
 plt.plot(np.array(average_reward_fc[25:450])/200,label='Fully-Connected')
 plt.plot(np.array(average_reward_lstm[25:])/200,label='BiLSTM')
+plt.plot(np.array(average_reward_commnet[25:])/200,label='CommNet')
 
 plt.title("Avarage reward for each episode")
 plt.xlabel('episode')

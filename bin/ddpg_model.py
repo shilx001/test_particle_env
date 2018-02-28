@@ -15,7 +15,6 @@ TAU = 0.01  # soft replacement
 MEMORY_CAPACITY = 5000
 BATCH_SIZE = 32
 HIDDEN_SIZE = 20
-AGENT_SIZE = 10
 
 
 ###############################  Muti-agent DDPG  ####################################
@@ -89,7 +88,7 @@ class DDPG(object):
         self.memory[index, :] = transition
         self.pointer += 1
 
-    def shape(self,tensor):
+    def shape(self, tensor):
         s = tensor.get_shape()
         return tuple([s[i].value for i in range(0, len(s))])
 
@@ -100,17 +99,28 @@ class DDPG(object):
         dim = t_shape[2]
         with tf.variable_scope(scope_name):
             w1_x = tf.multiply(
-                tf.Variable(tf.truncated_normal([1, dim, HIDDEN_SIZE],stddev=0.1,dtype=tf.float64)),
-                tf.ones([BATCH_SIZE, dim, HIDDEN_SIZE],dtype=tf.float64))
+                tf.Variable(tf.truncated_normal([1, dim, HIDDEN_SIZE], stddev=0.1, dtype=tf.float64)),
+                tf.ones([BATCH_SIZE, dim, HIDDEN_SIZE], dtype=tf.float64))
             hidden1_x = tf.nn.relu(tf.matmul(x, w1_x))
             w1_c = tf.multiply(
-                tf.Variable(tf.truncated_normal([1, dim, HIDDEN_SIZE],stddev=0.1, dtype=tf.float64)),
-                tf.ones([BATCH_SIZE, dim, HIDDEN_SIZE],dtype=tf.float64))
+                tf.Variable(tf.truncated_normal([1, dim, HIDDEN_SIZE], stddev=0.1, dtype=tf.float64)),
+                tf.ones([BATCH_SIZE, dim, HIDDEN_SIZE], dtype=tf.float64))
             hidden1_c = tf.nn.relu(tf.matmul(x, w1_c))
             w2 = tf.multiply(
-                tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE * 2, HIDDEN_SIZE],stddev=0.1, dtype=tf.float64)),
-                tf.ones([BATCH_SIZE, HIDDEN_SIZE * 2, HIDDEN_SIZE],dtype=tf.float64))
+                tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE * 2, HIDDEN_SIZE], stddev=0.1, dtype=tf.float64)),
+                tf.ones([BATCH_SIZE, HIDDEN_SIZE * 2, HIDDEN_SIZE], dtype=tf.float64))
             return tf.nn.relu(tf.matmul(tf.concat([hidden1_x, hidden1_c], axis=2), w2))
+
+    def attention(self, scope, input_value):
+        # input: [batch_size, agent_number, hidden_size]
+        with tf.variable_scope(scope):
+            w1 = tf.multiply(
+                tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE, self.agent_number], stddev=0.1, dtype=tf.float64)),
+                tf.ones([BATCH_SIZE, HIDDEN_SIZE, self.agent_number], dtype=tf.float64))
+            weight = tf.nn.softmax(
+                tf.matmul(input_value, w1))  # attention weight: [batch_size, self.agent_number, self.agent_number]
+            output_value = tf.matmul(weight, input_value)
+        return output_value
 
     def _build_a(self, s, reuse=None, custom_getter=None):  # BiCNet/MemNet
         trainable = True if reuse is None else False
@@ -118,10 +128,12 @@ class DDPG(object):
             input_state = tf.reshape(s, [BATCH_SIZE, self.agent_number, self.s_dim])
             c = tf.zeros_like(input_state)
             net = self.mlp('a_layer1', input_state, c)
-            c = tf.reshape(tf.reduce_mean(net, axis=1),[BATCH_SIZE,1,HIDDEN_SIZE])
+            c = tf.reshape(tf.reduce_mean(net, axis=1), [BATCH_SIZE, 1, HIDDEN_SIZE])
             net = self.mlp('a_layer2', net, c)  # output: [batch_size, self.agent_number, hidden_zise]
-            w = tf.multiply(tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE, self.a_dim],stddev=0.1, dtype=tf.float64)),
-                            tf.ones([BATCH_SIZE, HIDDEN_SIZE, self.a_dim],dtype=tf.float64))
+            net = self.attention('attention_layer', net)  # add attention layer
+            w = tf.multiply(
+                tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE, self.a_dim], stddev=0.1, dtype=tf.float64)),
+                tf.ones([BATCH_SIZE, HIDDEN_SIZE, self.a_dim], dtype=tf.float64))
             x = tf.nn.tanh(tf.matmul(net, w)) * self.a_bound
             return tf.reshape(x, [BATCH_SIZE, self.agent_number * self.a_dim])
 
@@ -133,9 +145,10 @@ class DDPG(object):
             input_all = tf.concat([input_action, input_state], axis=2)
             c = tf.zeros_like(input_state)
             net = self.mlp('c_layer1', input_all, c)
-            c = tf.reshape(tf.reduce_mean(net, axis=1),[BATCH_SIZE,1,HIDDEN_SIZE])
+            c = tf.reshape(tf.reduce_mean(net, axis=1), [BATCH_SIZE, 1, HIDDEN_SIZE])
             net = self.mlp('c_layer2', net, c)
-            w = tf.multiply(tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE, 1],stddev=0.1,dtype=tf.float64)),
-                            tf.ones([BATCH_SIZE, HIDDEN_SIZE, 1],dtype=tf.float64))
+            net=self.attention('attention',net)
+            w = tf.multiply(tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE, 1], stddev=0.1, dtype=tf.float64)),
+                            tf.ones([BATCH_SIZE, HIDDEN_SIZE, 1], dtype=tf.float64))
             Q = tf.nn.tanh(tf.matmul(net, w))
             return tf.reshape(Q, [BATCH_SIZE, self.agent_number])
