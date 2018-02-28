@@ -8,8 +8,8 @@ import time
 
 MAX_EPISODES = 200
 MAX_EP_STEPS = 200
-LR_A = 0.001  # learning rate for actor
-LR_C = 0.002  # learning rate for critic
+LR_A = 0.0001  # learning rate for actor
+LR_C = 0.0002  # learning rate for critic
 GAMMA = 0.99  # reward discount
 TAU = 0.01  # soft replacement
 MEMORY_CAPACITY = 5000
@@ -30,16 +30,16 @@ class DDPG(object):
         :param agent_number: agent number
         '''
         self.memory = np.zeros((MEMORY_CAPACITY, agent_number, s_dim * 2 + 1 + a_dim),
-                               dtype=np.float32)  # reward变为agent_size维
+                               dtype=np.float64)  # reward变为agent_size维
         self.pointer = 0
         self.sess = tf.Session()
 
         self.a_dim, self.s_dim, self.a_bound, self.agent_number = a_dim, s_dim, a_bound, agent_number
-        self.S = tf.placeholder(tf.float32, [BATCH_SIZE, s_dim * agent_number],
+        self.S = tf.placeholder(tf.float64, [BATCH_SIZE, s_dim * agent_number],
                                 's')  # stretch the state dimension into 1-dimension
-        self.S_ = tf.placeholder(tf.float32, [BATCH_SIZE, s_dim * agent_number],
+        self.S_ = tf.placeholder(tf.float64, [BATCH_SIZE, s_dim * agent_number],
                                  's_')  # stretch the state dimension into 1-dimension
-        self.R = tf.placeholder(tf.float32, [BATCH_SIZE, agent_number], 'r')  # reward变为Agent_size维
+        self.R = tf.placeholder(tf.float64, [BATCH_SIZE, agent_number], 'r')  # reward变为Agent_size维
 
         self.a = self._build_a(self.S, )
         q = self._build_c(self.S, self.a, )
@@ -73,10 +73,10 @@ class DDPG(object):
     def learn(self):
         indices = np.random.choice(MEMORY_CAPACITY, size=BATCH_SIZE)
         bt = self.memory[indices, :]  # transitions
-        bs = np.reshape(bt[:, :, :self.s_dim], [-1, self.s_dim*self.agent_number])  # states
-        ba = np.reshape(bt[:, :, self.s_dim:self.s_dim+self.a_dim], [-1, self.agent_number*self.a_dim])
-        br = bt[:, :, self.s_dim+self.a_dim]  # rewards
-        bs_ = np.reshape(bt[:, :, -self.s_dim:], [-1, self.agent_number*self.s_dim])  # next_state
+        bs = np.reshape(bt[:, :, :self.s_dim], [-1, self.s_dim * self.agent_number])  # states
+        ba = np.reshape(bt[:, :, self.s_dim:self.s_dim + self.a_dim], [-1, self.agent_number * self.a_dim])
+        br = bt[:, :, self.s_dim + self.a_dim]  # rewards
+        bs_ = np.reshape(bt[:, :, -self.s_dim:], [-1, self.agent_number * self.s_dim])  # next_state
 
         self.sess.run(self.atrain, {self.S: bs})
         self.sess.run(self.ctrain, {self.S: bs, self.a: ba, self.R: br, self.S_: bs_})
@@ -89,31 +89,53 @@ class DDPG(object):
         self.memory[index, :] = transition
         self.pointer += 1
 
-    def _build_a(self, s, reuse=None, custom_getter=None):#BiCNet/MemNet
+    def shape(self,tensor):
+        s = tensor.get_shape()
+        return tuple([s[i].value for i in range(0, len(s))])
+
+    def mlp(self, scope_name, x, c):
+        # communication core for CommNet
+        # batch computing for efficiency
+        t_shape = self.shape(x)
+        dim = t_shape[2]
+        with tf.variable_scope(scope_name):
+            w1_x = tf.multiply(
+                tf.Variable(tf.truncated_normal([1, dim, HIDDEN_SIZE],stddev=0.1,dtype=tf.float64)),
+                tf.ones([BATCH_SIZE, dim, HIDDEN_SIZE],dtype=tf.float64))
+            hidden1_x = tf.nn.relu(tf.matmul(x, w1_x))
+            w1_c = tf.multiply(
+                tf.Variable(tf.truncated_normal([1, dim, HIDDEN_SIZE],stddev=0.1, dtype=tf.float64)),
+                tf.ones([BATCH_SIZE, dim, HIDDEN_SIZE],dtype=tf.float64))
+            hidden1_c = tf.nn.relu(tf.matmul(x, w1_c))
+            w2 = tf.multiply(
+                tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE * 2, HIDDEN_SIZE],stddev=0.1, dtype=tf.float64)),
+                tf.ones([BATCH_SIZE, HIDDEN_SIZE * 2, HIDDEN_SIZE],dtype=tf.float64))
+            return tf.nn.relu(tf.matmul(tf.concat([hidden1_x, hidden1_c], axis=2), w2))
+
+    def _build_a(self, s, reuse=None, custom_getter=None):  # BiCNet/MemNet
         trainable = True if reuse is None else False
         with tf.variable_scope('Actor', reuse=reuse, custom_getter=custom_getter):
             input_state = tf.reshape(s, [BATCH_SIZE, self.agent_number, self.s_dim])
-            #cell = tf.contrib.rnn.BasicRNNCell(num_units=HIDDEN_SIZE)
-            cell = tf.contrib.rnn.LSTMCell(num_units=HIDDEN_SIZE)
-            outputs, states = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell, cell_bw=cell, inputs=input_state,
-                                                              dtype=tf.float32)
-            outputs_all = tf.concat(outputs, 1)
-            outputs_all = tf.reshape(outputs_all, [BATCH_SIZE, 2 * HIDDEN_SIZE * self.agent_number])
-            a = tf.layers.dense(outputs_all, self.a_dim * self.agent_number, activation=tf.nn.tanh, name='a',
-                                trainable=trainable)
-            return tf.multiply(a, self.a_bound, name='scaled_a')
+            c = tf.zeros_like(input_state)
+            net = self.mlp('a_layer1', input_state, c)
+            c = tf.reshape(tf.reduce_mean(net, axis=1),[BATCH_SIZE,1,HIDDEN_SIZE])
+            net = self.mlp('a_layer2', net, c)  # output: [batch_size, self.agent_number, hidden_zise]
+            w = tf.multiply(tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE, self.a_dim],stddev=0.1, dtype=tf.float64)),
+                            tf.ones([BATCH_SIZE, HIDDEN_SIZE, self.a_dim],dtype=tf.float64))
+            x = tf.nn.tanh(tf.matmul(net, w)) * self.a_bound
+            return tf.reshape(x, [BATCH_SIZE, self.agent_number * self.a_dim])
 
-    def _build_c(self, s, a, reuse=None, custom_getter=None):#BiCNet/MemNet
+    def _build_c(self, s, a, reuse=None, custom_getter=None):  # BiCNet/MemNet
         trainable = True if reuse is None else False
         with tf.variable_scope('Critic', reuse=reuse, custom_getter=custom_getter):
             input_action = tf.reshape(a, [BATCH_SIZE, self.agent_number, self.a_dim])
             input_state = tf.reshape(s, [BATCH_SIZE, self.agent_number, self.s_dim])
             input_all = tf.concat([input_action, input_state], axis=2)
-            #cell = tf.contrib.rnn.BasicRNNCell(num_units=HIDDEN_SIZE)
-            cell=tf.contrib.rnn.LSTMCell(num_units=HIDDEN_SIZE)
-            outputs, states = tf.nn.bidirectional_dynamic_rnn(cell_fw=cell, cell_bw=cell, inputs=input_all,
-                                                              dtype=tf.float32)
-            outputs_all = tf.concat(outputs, 1)
-            outputs_all = tf.reshape(outputs_all, [BATCH_SIZE, -1])
-            Q = tf.layers.dense(outputs_all, self.agent_number, name='Q', trainable=trainable)
-            return Q
+            c = tf.zeros_like(input_state)
+            net = self.mlp('c_layer1', input_all, c)
+            c = tf.reshape(tf.reduce_mean(net, axis=1),[BATCH_SIZE,1,HIDDEN_SIZE])
+            net = self.mlp('c_layer2', net, c)
+            w = tf.multiply(tf.Variable(tf.truncated_normal([1, HIDDEN_SIZE, 1],stddev=0.1,dtype=tf.float64)),
+                            tf.ones([BATCH_SIZE, HIDDEN_SIZE, 1],dtype=tf.float64))
+            Q = tf.nn.tanh(tf.matmul(net, w))
+            return tf.reshape(Q, [BATCH_SIZE, self.agent_number])
